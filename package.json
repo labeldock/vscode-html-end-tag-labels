@@ -2,16 +2,22 @@
   "name": "html-end-tag-labels",
   "displayName": "HTML End Tag Labels",
   "description": "Labels HTML end tags in VSCode",
-  "version": "1.0.0",
+  "version": "1.0.0-alt.4",
   "author": {
     "email": "anteprimorachr@gmail.com",
     "name": "Ante Primorac",
     "url": "http://anteprimorac.com.hr"
   },
-  "publisher": "anteprimorac",
+  "contributors": [
+    {
+      "name": "AHN HO-JUNG",
+      "email": "labeldock@me.com"
+    }
+  ],
+  "publisher": "labeldock",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.78.0"
+    "vscode": "^1.93.0"
   },
   "categories": [
     "Other"
@@ -73,6 +79,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
+    "package": "npm run compile && npx @vscode/vsce package",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",

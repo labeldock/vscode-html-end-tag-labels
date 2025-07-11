@@ -172,9 +172,14 @@ export default class ClosingLabelsDecorations implements vscode.Disposable {
         }
 
         if (hasClassAttr) {
-          const classAttr = symbol.name
+          let classAttr = symbol.name
             .substring(dotCharIndex + 1)
-            .trim()
+            .trim();
+
+          // 템플릿 코드(<% ... %>)를 모두 제거
+          classAttr = classAttr.replace(/<%=?[\s\S]*?%>/g, '').trim();
+
+          classAttr = classAttr
             .split('.')
             .map((item) => item.trim())
             .filter((item) => Boolean(item.length))
