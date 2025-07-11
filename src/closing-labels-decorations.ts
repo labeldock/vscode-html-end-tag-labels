@@ -152,56 +152,67 @@ export default class ClosingLabelsDecorations implements vscode.Disposable {
         const separatorCharIndex = hasIdAttr ? hashCharIndex : dotCharIndex;
 
         const tagName = symbol.name.substring(0, separatorCharIndex);
-        let id = '';
-        let classes = '';
 
+        // Search for the closing tag position directly in the entire document
+        let endTagLine = symbol.location.range.end.line;
+        let endTagEndChar = -1;
+        let found = false;
+        const closingTagText = `</${tagName}>`;
+
+        // The closing tag may span multiple lines, so search for the closing tag from the current line downward
+        for (let line = endTagLine; line < input.lineCount; line++) {
+          const text = input.lineAt(line).text;
+          const idx = text.indexOf(closingTagText);
+          if (idx !== -1) {
+            endTagLine = line;
+            endTagEndChar = idx + closingTagText.length;
+            found = true;
+            break;
+          }
+        }
+        // If not found, display at the end of the line
+        if (!found) {
+          endTagEndChar = input.lineAt(endTagLine).text.length;
+        }
+
+        let label = '';
         if (hasIdAttr) {
-          let idAttr: string;
-
-          if (hasClassAttr) {
-            idAttr = symbol.name.substring(hashCharIndex + 1, dotCharIndex);
-          } else {
-            idAttr = symbol.name.substring(hashCharIndex + 1);
-          }
-
-          idAttr = idAttr.trim();
-
+          const idAttr = symbol.name.substring(hashCharIndex + 1).split('.')[0].trim();
           if (idAttr.length) {
-            id = `#${idAttr}`;
+            label += `#${idAttr}`;
           }
         }
-
         if (hasClassAttr) {
-          let classAttr = symbol.name
-            .substring(dotCharIndex + 1)
-            .trim();
+          let classAttr = symbol.name.substring(dotCharIndex + 1);
 
-          // 템플릿 코드(<% ... %>)를 모두 제거
-          classAttr = classAttr.replace(/<%=?[\s\S]*?%>/g, '').trim();
+          // first, split by dot and process each part
+          const dotParts = classAttr.split('.');
+          const cleanTokens: string[] = [];
+          
+          for (const part of dotParts) {
+            const trimmedPart = part.trim();
+            if (!trimmedPart) continue; // ignore empty strings
+            
+            // Check if it is template code
+            if (/<%=?[\s\S]*?%>/.test(trimmedPart)) {
+              cleanTokens.push('<%>');
+            } else {
+              // Split normal class names by whitespace
+              const classes = trimmedPart.split(/\s+/).filter(c => c.length > 0);
+              cleanTokens.push(...classes);
+            }
+          }
 
-          classAttr = classAttr
-            .split('.')
-            .map((item) => item.trim())
-            .filter((item) => Boolean(item.length))
-            .join('.');
-
-          if (classAttr.length) {
-            classes = `.${classAttr}`;
+          if (cleanTokens.length > 0) {
+            label += '.' + cleanTokens.join('.');
           }
         }
-
-        const label = `${id}${classes}`;
-
-        const endTagLength = tagName.length + 3; // 3 chars for `</>`
-        const endTagLine = symbol.location.range.end.line;
-        const endTagEndChar = symbol.location.range.end.character;
-        const endTagStartChar = endTagEndChar >= endTagLength ? endTagEndChar - endTagLength : endTagEndChar;
 
         const labelPrefix = vscode.workspace.getConfiguration('htmlEndTagLabels').labelPrefix || '/';
 
         return {
           range: new vscode.Range(
-            new vscode.Position(endTagLine, endTagStartChar),
+            new vscode.Position(endTagLine, endTagEndChar),
             new vscode.Position(endTagLine, endTagEndChar)
           ),
           renderOptions: { after: { contentText: `${labelPrefix}${label}` } },
