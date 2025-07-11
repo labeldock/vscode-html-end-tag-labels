@@ -175,37 +175,121 @@ export default class ClosingLabelsDecorations implements vscode.Disposable {
           endTagEndChar = input.lineAt(endTagLine).text.length;
         }
 
-        let label = '';
+
+
+        // --- New: Extract id, role, type, class with template block skipping ---
+        function extractTemplateBlocks(str: string): { blocks: { start: number, end: number, value: string }[], clean: string } {
+          // Returns all <% ... %> blocks and a string with those blocks replaced by a placeholder
+          const blocks: { start: number, end: number, value: string }[] = [];
+          let clean = '';
+          let i = 0;
+          while (i < str.length) {
+            const start = str.indexOf('<%', i);
+            if (start === -1) {
+              clean += str.slice(i);
+              break;
+            }
+            const end = str.indexOf('%>', start + 2);
+            if (end === -1) {
+              clean += str.slice(i);
+              break;
+            }
+            // push block
+            blocks.push({ start, end: end + 2, value: str.slice(start, end + 2) });
+            clean += str.slice(i, start) + '___TEMPLATE_BLOCK___';
+            i = end + 2;
+          }
+          return { blocks, clean };
+        }
+
+        let idValue = '';
+        let roleValue = '';
+        let typeValue = '';
+        let classValue = '';
+
+        // Extract id (template string support, do not split template)
         if (hasIdAttr) {
-          const idAttr = symbol.name.substring(hashCharIndex + 1).split('.')[0].trim();
-          if (idAttr.length) {
-            label += `#${idAttr}`;
+          let rawId = symbol.name.substring(hashCharIndex + 1);
+          const { blocks, clean } = extractTemplateBlocks(rawId);
+          if (blocks.length > 0) {
+            idValue = blocks[0].value.trim();
+          } else {
+            idValue = clean.split(/[. ]/)[0].trim();
           }
         }
+
+        // Extract class (template string support, do not split template)
         if (hasClassAttr) {
           let classAttr = symbol.name.substring(dotCharIndex + 1);
-
-          // first, split by dot and process each part
-          const dotParts = classAttr.split('.');
-          const cleanTokens: string[] = [];
-          
-          for (const part of dotParts) {
-            const trimmedPart = part.trim();
-            if (!trimmedPart) continue; // ignore empty strings
-            
-            // Check if it is template code
-            if (/<%=?[\s\S]*?%>/.test(trimmedPart)) {
-              cleanTokens.push('<%>');
-            } else {
-              // Split normal class names by whitespace
+          const { blocks, clean } = extractTemplateBlocks(classAttr);
+          if (blocks.length > 0) {
+            classValue = blocks.map(b => b.value.trim()).join('.') || '';
+          } else {
+            // Split by dot, then by whitespace, but ignore aria-* and other attributes
+            const dotParts = clean.split('.');
+            const cleanTokens: string[] = [];
+            for (const part of dotParts) {
+              const trimmedPart = part.trim();
+              if (!trimmedPart) continue;
+              if (/^(aria-|data-|role=|type=)/.test(trimmedPart)) continue;
               const classes = trimmedPart.split(/\s+/).filter(c => c.length > 0);
               cleanTokens.push(...classes);
             }
+            if (cleanTokens.length > 0) {
+              classValue = cleanTokens.join('.');
+            }
           }
+        }
 
-          if (cleanTokens.length > 0) {
-            label += '.' + cleanTokens.join('.');
+        // --- New: Extract type and role from the document line, skipping template blocks ---
+        let openTagLine = symbol.location.range.start.line;
+        let openTagText = input.lineAt(openTagLine).text;
+        if (!openTagText.includes('>')) {
+          let tempLine = openTagLine;
+          while (!openTagText.includes('>') && tempLine < input.lineCount - 1) {
+            tempLine++;
+            openTagText += input.lineAt(tempLine).text;
           }
+        }
+        // Remove template blocks for attribute parsing
+        const { blocks: typeBlocks, clean: typeClean } = extractTemplateBlocks(openTagText);
+        // Extract type="..." or type='...'
+        const typeMatch = typeClean.match(/type\s*=\s*(["'])(.*?)\1/);
+        if (typeMatch && typeMatch[2]) {
+          // Try to find the corresponding template block if present
+          const typeRaw = typeMatch[2];
+          const block = typeBlocks.find(b => openTagText.slice(b.start, b.end).includes(typeRaw));
+          if (block) {
+            typeValue = block.value.trim();
+          } else {
+            typeValue = typeRaw.trim();
+          }
+        }
+        // Extract role="..." or role='...'
+        const roleMatch = typeClean.match(/role\s*=\s*(["'])(.*?)\1/);
+        if (roleMatch && roleMatch[2]) {
+          const roleRaw = roleMatch[2];
+          const block = typeBlocks.find(b => openTagText.slice(b.start, b.end).includes(roleRaw));
+          if (block) {
+            roleValue = block.value.trim();
+          } else {
+            roleValue = roleRaw.trim();
+          }
+        }
+
+        // --- Compose label in order: id, role, type, class ---
+        let label = '';
+        if (idValue) {
+          label += `#${idValue}`;
+        }
+        if (roleValue) {
+          label += `[role=${roleValue}]`;
+        }
+        if (typeValue) {
+          label += `[type=${typeValue}]`;
+        }
+        if (classValue) {
+          label += `.${classValue}`;
         }
 
         const labelPrefix = vscode.workspace.getConfiguration('htmlEndTagLabels').labelPrefix || '/';
